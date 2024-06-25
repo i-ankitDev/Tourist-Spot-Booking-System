@@ -8,9 +8,9 @@ def generate_otp(length=6):
 
 def send_otp_via_sms(mobile_number, otp):
     """Send an OTP to the specified mobile number using Twilio."""
-    account_sid = 'ACf2e79a2369886dd66c1bf8a4c01657ec'
-    auth_token = '6f07018691a59c4640a81faf95cb296e'
-    twilio_phone_number = '+12568261642'
+    account_sid = '*****'
+    auth_token = '*****'
+    twilio_phone_number = '*****'
     
     client = Client(account_sid, auth_token)
     
