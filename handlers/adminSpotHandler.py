@@ -166,73 +166,55 @@ class AdminSpotHandler(BaseHandler):
                     
             
             
-                
             if state_name:
                 state_doc = await db.states.find_one({'name': {'$regex': state_name, '$options': 'i'}})
                 if state_doc:
-                    query['state'] = state_doc['name']
-                    if not city_name:
-                        cities = await db.city.find({'state_id': state_doc['_id']}).to_list(length=None)
-                        city_names = [city['name'] for city in cities]
-                        categories_in_state = []
-                        spots_in_state = []
-                        day_wise_details = []
-                        for city in cities:
-                            categories = await db.category.find({'city_id': city['_id']}).to_list(length=None)
-                            for category in categories:
-                                categories_in_state.append(category['name'])
-                                spots = await db.spots.find({'category': category['_id']}).to_list(length=None)
-                                for spot in spots:
-                                    spots_in_state.append(spot['name'])
-                                    day_wise_data = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
-                                    for data in day_wise_data:
-                                        del data['_id']
-                                        del data['spot_id']
-                                        # Convert keys to strings to ensure JSON serialization
-                                        for key in data.keys():
-                                            if isinstance(data[key], dict):
-                                                data[key] = {str(k): v for k, v in data[key].items()}
-                                    day_wise_details.extend(day_wise_data)
-                        self.write({
-                            'status': 'success',
-                            'state': state_doc['name'],
-                            'cities': city_names,
-                            'categories': categories_in_state,
-                            'spots': spots_in_state,
-                            'day_wise_details': day_wise_details
-                        })
-                        return
+                    state_data = {}
+                    cities = await db.city.find({'state_id': state_doc['_id']}).to_list(length=None)
+                    for city in cities:
+                        city_data = {}
+                        categories = await db.category.find({'city_id': city['_id']}).to_list(length=None)
+                        for category in categories:
+                            category_data = []
+                            spots = await db.spots.find({'category': category['_id']}).to_list(length=None)
+                            for spot in spots:
+                                spot_data = {}
+                                spot_ticket_details = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
+                                day_wise_details = generate_day_wise_details(spot_ticket_details)
+                                spot_data['spot_name'] = spot['name']
+                                spot_data['day_wise_details'] = day_wise_details
+                                category_data.append(spot_data)
+                            city_data[category['name']] = category_data
+                        state_data[city['name']] = city_data
+
+                    self.write({
+                        'status': 'success',
+                        state_doc['name']: state_data
+                    })
+                    return
 
             if city_name:
                 city_doc = await db.city.find_one({'name': {'$regex': city_name, '$options': 'i'}})
                 if city_doc:
-                    query['city'] = city_doc['name']
-                    if not category_name:
-                        categories = await db.category.find({'city_id': city_doc['_id']}).to_list(length=None)
-                        category_names = [category['name'] for category in categories]
-                        spots_in_city = []
-                        day_wise_details = []
-                        for category in categories:
-                            spots = await db.spots.find({'category': category['_id']}).to_list(length=None)
-                            for spot in spots:
-                                spots_in_city.append(spot['name'])
-                                day_wise_data = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
-                                for data in day_wise_data:
-                                    del data['_id']
-                                    del data['spot_id']
-                                    # Convert keys to strings to ensure JSON serialization
-                                    for key in data.keys():
-                                        if isinstance(data[key], dict):
-                                            data[key] = {str(k): v for k, v in data[key].items()}
-                                day_wise_details.extend(day_wise_data)
-                        self.write({
-                            'status': 'success',
-                            'city': city_doc['name'],
-                            'categories': category_names,
-                            'spots': spots_in_city,
-                            'day_wise_details': day_wise_details
-                        })
-                        return
+                    city_data = {}
+                    categories = await db.category.find({'city_id': city_doc['_id']}).to_list(length=None)
+                    for category in categories:
+                        category_data = []
+                        spots = await db.spots.find({'category': category['_id']}).to_list(length=None)
+                        for spot in spots:
+                            spot_data = {}
+                            spot_ticket_details = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
+                            day_wise_details = generate_day_wise_details(spot_ticket_details)
+                            spot_data['spot_name'] = spot['name']
+                            spot_data['day_wise_details'] = day_wise_details
+                            category_data.append(spot_data)
+                        city_data[category['name']] = category_data
+
+                    self.write({
+                        'status': 'success',
+                        city_doc['name']: city_data
+                    })
+                    return
 
             if category_name:
                 category_doc = await db.category.find_one({'name': {'$regex': category_name, '$options': 'i'}})
@@ -240,45 +222,41 @@ class AdminSpotHandler(BaseHandler):
                     query['category'] = category_doc['name']
                     if not spot_name:
                         spots = await db.spots.find({'category': category_doc['_id']}).to_list(length=None)
-                        spot_names = [spot['name'] for spot in spots]
-                        day_wise_details = []
+                        category_data = []
                         for spot in spots:
-                            day_wise_data = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
-                            for data in day_wise_data:
-                                del data['_id']
-                                del data['spot_id']
-                                # Convert keys to strings to ensure JSON serialization
-                                for key in data.keys():
-                                    if isinstance(data[key], dict):
-                                        data[key] = {str(k): v for k, v in data[key].items()}
-                            day_wise_details.extend(day_wise_data)
+                            spot_data = {}
+                            spot_ticket_details = await db.spotTicket.find({'spot_id': spot['_id']}).to_list(length=None)
+                            day_wise_details = generate_day_wise_details(spot_ticket_details)
+                            spot_data['spot_name'] = spot['name']
+                            spot_data['day_wise_details'] = day_wise_details
+                            category_data.append(spot_data)
                         self.write({
                             'status': 'success',
-                            'category': category_doc['name'],
-                            'spots': spot_names,
-                            'day_wise_details': day_wise_details
+                            category_doc['name']: category_data
                         })
                         return
 
             if spot_name:
-                spot_doc = await db.spots.find_one({'name': {'$regex': spot_name, '$options': 'i'}})
-                if spot_doc:
-                    query['spot'] = spot_doc['name']
-                    day_wise_details = await db.spotTicket.find({'spot_id': spot_doc['_id']}).to_list(length=None)
-                    for data in day_wise_details:
-                        del data['_id']
-                        del data['spot_id']
-                        # Convert keys to strings to ensure JSON serialization
-                        for key in data.keys():
-                            if isinstance(data[key], dict):
-                                data[key] = {str(k): v for k, v in data[key].items()}
-                    self.write({
-                        'status': 'success',
-                        'spot': spot_doc['name'],
-                        'day_wise_details': day_wise_details
-                    })
-                    return
-
+                spot_details = {}
+                spot= await utils.db.findSpot(spot_name)
+                if spot is not None:
+                # print(state['name'])
+                    if spot:
+                        
+                        spot_id = spot['_id']
+                        spot_details[spot_name] = []
+                        spot_ticket_details = await utils.db.findSpotTicket(spot_id)
+                        day_wise_details=generate_day_wise_details(spot_ticket_details)
+                                
+                        spot_details[spot_name].append({
+                            "day_wise_details": day_wise_details
+                        })
+                    self.set_status(200)
+                    self.write({"status": True, "data": spot_details})  
+                    # print(spot_details)
+                else:
+                    self.set_status(400)
+                    self.write({"status": False, "message": "spot not found"}) 
         except Exception as e:
             self.set_status(500)
             self.write({"error": str(e)})
