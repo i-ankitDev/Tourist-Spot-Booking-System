@@ -172,7 +172,6 @@ class AdminHandler(BaseHandler):
         try:
             usersGender=await utils.db.findMaleFemaleUsers()
             usersAge=await utils.db.findAgeWiseUsers()
-
             spots = await utils.db.findAllSpots()
             for spot in spots:
                 # print(spot)

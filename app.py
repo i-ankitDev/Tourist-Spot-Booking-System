@@ -14,6 +14,7 @@ from handlers.stateHandler import StateHandler
 from handlers.countryHandler import CountryHandler
 from handlers.categoryHandler import CategoriesHandler
 from handlers.ratingHandler import RatingHandler
+from handlers.filterHandler import FilterHandler
 
 def make_app():
     db=getDatabase()
@@ -33,6 +34,7 @@ def make_app():
         (r"/getcountries",CountryHandler ,dict(db=db)),
         (r"/getcategories",CategoriesHandler ,dict(db=db)),
         (r"/user/rating",RatingHandler ,dict(db=db)),
+        (r"/spot/filter",FilterHandler ,dict(db=db)),
 
     ], cookie_secret="nbkZgds8bKe3SFXKhX09B7AC8NwtUmxq86NBjW6iLGvxItZt_ST5", debug=True)
 
