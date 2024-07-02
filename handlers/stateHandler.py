@@ -8,10 +8,10 @@ class StateHandler(BaseHandler):
         self.db = db
 
     async def get(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         try:
             states = await utils.db.findAllStates()
             stateNames = []

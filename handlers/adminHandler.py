@@ -1,6 +1,7 @@
 import base64
 import datetime
 from bson import ObjectId
+import motor
 import tornado.web
 import tornado.ioloop
 from utils.jwt import decode
@@ -8,6 +9,9 @@ import utils.db
 import json
 from datetime import date
 from handlers.auth import BaseHandler
+
+myclient = motor.motor_tornado.MotorClient('mongodb://localhost:27017')
+db = myclient["Tourist_Spot_Booking_System"]
 
 def calculate_revenue(capacity, tickets_available, price):
         return (capacity - tickets_available) * price
@@ -18,10 +22,10 @@ class AdminHandler(BaseHandler):
         self.fs = fs
 
     async def post(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not BaseHandler.get_current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
 
         try:
             data = tornado.escape.json_decode(self.request.body)
@@ -31,9 +35,11 @@ class AdminHandler(BaseHandler):
             country_name = data.get("country")
             category_name = data.get("category")
             is_active = data.get("isActive", True)
-            image_base64 = data.get("image")
+            image_url = data.get("image")
+            opening_time = data.get("opening_time")
+            closing_time = data.get("closing_time")
     
-            if not image_base64:
+            if not image_url:
                 self.set_status(400)
                 self.write({"status": False, "message": "Image is required."})
                 return
@@ -42,14 +48,6 @@ class AdminHandler(BaseHandler):
     
             if spot is None:
                 try:
-                    image_data = base64.b64decode(image_base64)
-                    image_filename = data.get("imageFilename", "uploaded_image")
-                    image_document = {
-                        "data": image_data,
-                        "filename": image_filename
-                    }
-                    image_id = await utils.db.insertImage(image_document)
-
                     country = await utils.db.findCountry(country_name)
                     if country is None:
                         country_id = ObjectId()
@@ -63,7 +61,7 @@ class AdminHandler(BaseHandler):
 
                     state = await utils.db.findState(state_name)
                     if state is None:
-                        country_id = country_id or ObjectId()  # Ensure we have a valid country_id
+                        country_id = country_id or ObjectId() 
                         state_id = ObjectId()
                         stateDetails = {
                             "_id": state_id,
@@ -76,8 +74,8 @@ class AdminHandler(BaseHandler):
 
                     city = await utils.db.findCity(city_name)
                     if city is None:
-                        country_id = country_id   # Ensure we have a valid country_id
-                        state_id = state_id  # Ensure we have a valid state_id
+                        country_id = country_id  
+                        state_id = state_id 
                         city_id = ObjectId()
                         cityDetails = {
                             "_id": city_id,
@@ -110,7 +108,10 @@ class AdminHandler(BaseHandler):
                         "address": address,
                         "category": category_id,
                         "isActive": is_active,
-                        "image_id": image_id,
+                        "image": image_url,
+                        "opening_time":opening_time,
+                        "closing_time":closing_time,
+                        "isOpened":True
                     }
                     result=await utils.db.addSpot(spot)
                     spot_id= result.inserted_id
@@ -141,58 +142,148 @@ class AdminHandler(BaseHandler):
             self.write({"status": False, "message": f"An error occurred: {str(e)}"})
 
     async def get(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         
         try:
             usersGender=await utils.db.findMaleFemaleUsers()
             usersAge=await utils.db.findAgeWiseUsers()
-            spots = await utils.db.findAllSpots()
-            for spot in spots:
-                # print(spot)
-                spot['_id'] = str(spot['_id'])
-                city= await utils.db.findCityById(spot['address']['city'])
-                states=await utils.db.findStateById(spot['address']['state'])
-                country=await utils.db.findCountryById(spot['address']['country'])
-                category=await utils.db.findCategoryById(spot['category'])
-                spot['address']['city'] = city['name']
-                spot['address']['state'] = states['name']
-                spot['address']['country'] = country['name']
-                spot['category'] = category['name']
-                # spot['category'] = str(spot['category'])
-                spot_ticket_details = await utils.db.findSpotTicket(ObjectId(spot['_id']))
-                # print(spot_ticket_details)
-                revenue = 0
-                for detail in spot_ticket_details:
-                    for date, data in detail.items():
-                        if date not in ["_id", "spot_id"]:
-                            if isinstance(date, str):
-                                date = datetime.datetime.strptime(date, '%Y-%m-%d').date()
+            pipeline=[
+                {
+                    '$lookup': {
+                        'from': 'spot_time_slot', 
+                        'localField': '_id', 
+                        'foreignField': 'spot_id', 
+                        'as': 'ticketdetails'
+                    }
+                }, {
+                    '$lookup': {
+                        'from': 'country', 
+                        'localField': 'address.country', 
+                        'foreignField': '_id', 
+                        'as': 'country'
+                    }
+                }, {
+                    '$lookup': {
+                        'from': 'states', 
+                        'localField': 'address.state', 
+                        'foreignField': '_id', 
+                        'as': 'state'
+                    }
+                }, {
+                    '$lookup': {
+                        'from': 'city', 
+                        'localField': 'address.city', 
+                        'foreignField': '_id', 
+                        'as': 'city'
+                    }
+                }, {
+                    '$lookup': {
+                        'from': 'category', 
+                        'localField': 'category', 
+                        'foreignField': '_id', 
+                        'as': 'category'
+                    }
+                }, {
+                    '$lookup': {
+                        'from': 'rating', 
+                        'localField': '_id', 
+                        'foreignField': 'spot_id', 
+                        'as': 'ratings'
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$category', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$country', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$state', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$city', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$ticketdetails', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$unwind': {
+                        'path': '$ratings', 
+                        'preserveNullAndEmptyArrays': True
+                    }
+                }, {
+                    '$group': {
+                        '_id': '$_id', 
+                        'name': {
+                            '$first': '$name'
+                        }, 
+                        'isActive': {
+                            '$first': '$isActive'
+                        }, 
+                        'image_url': {
+                            '$first': '$image'
+                        }, 
+                        'country_name': {
+                            '$first': '$country.name'
+                        }, 
+                        'state_name': {
+                            '$first': '$state.name'
+                        }, 
+                        'city_name': {
+                            '$first': '$city.name'
+                        }, 
+                        'category_name': {
+                            '$first': '$category.name'
+                        }, 
+                        'rating': {
+                            '$avg': '$ratings.rating'
+                        }, 
+                        'ticket_price': {
+                            '$first': '$ticketdetails.details.price'
+                        }
+                    }
+                }, {
+                    '$project': {
+                        'name': 1, 
+                        'isActive': 1, 
+                        'image_url': 1, 
+                        'country_name': 1, 
+                        'state_name': 1, 
+                        'city_name': 1, 
+                        'category_name': 1, 
+                        'rating': 1, 
+                        'ticket_price': 1
+                    }
+                }
+            ]
 
-                                capacity = data.get("capacity", 0)
-                                tickets_available = data.get("tickets_available", 0)
-                                price = data.get("price", 0.0)
-                                revenue = calculate_revenue(capacity, tickets_available, price)+revenue
-
-                spot['image_id'] = str(spot['image_id'])
-                spotImages= await utils.db.findSpotImages(ObjectId(spot['image_id']))
-                if spotImages:
-                    spotImages['_id'] = str(spotImages['_id'])
-                    spotImages['data'] = base64.b64encode(spotImages['data']).decode('utf-8')
-            # print(revenue)
+            cursor = db.spots.aggregate(pipeline)
+            result = await cursor.to_list(length=None)
+            for item in result:
+                item['_id'] = str(item['_id'])
             self.set_status(200)
-            self.write(({"status": "success", "data": spots,"spot-image":spotImages,"revenue":revenue,"usersGender":usersGender,"usersAge":usersAge}))
+            self.write(({"status": "success", "data": result,"usersGender":usersGender,"usersAge":usersAge}))
         except Exception as e:
             self.set_status(500)
             self.write(({"status": "error", "message": str(e)}))
 
     async def put(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         
         try:
             spot_id = self.get_query_argument("spot_id")
@@ -203,18 +294,17 @@ class AdminHandler(BaseHandler):
             country_name = data.get("country")
             category_name = data.get("category")
             is_active = data.get("isActive", True)
-            image_base64 = data.get("image")
-            if not image_base64:
+            image_url = data.get("image")
+            opening_time = data.get("opening_time")
+            closing_time = data.get("closing_time")
+    
+    
+            if not image_url:
                 self.set_status(400)
                 self.write({"status": False, "message": "Image is required."})
                 return
             spot= await utils.db.findSpotByName(name)
             if spot is not None:
-                image_data = base64.b64decode(image_base64)
-                image_filename = data.get("imageFilename", "uploaded_image")
-                data = image_data
-                filename = image_filename  
-                
                 if not ([spot['_id'], name, city_name, country_name, is_active, state_name, category_name]):
                     self.set_status(400)
                     self.write({"status": "error", "message": "Missing required parameters"})
@@ -222,75 +312,71 @@ class AdminHandler(BaseHandler):
             
                 spot_id = ObjectId(spot_id)
                 await utils.db.updateSpotAll(spot['_id'],spot['address']['country'],spot['address']['state'],spot['address']['city'],spot['category'])
-
-                spotImages= await utils.db.findSpotImages(spot['image_id'])
-                if spotImages:
-                    await utils.db.updateImage(ObjectId(spotImages['_id']),data,filename)
-                    country = await utils.db.findCountry(country_name)
-                    if country is None:
-                        country_id = ObjectId()
-                        countryDetails = {
-                            "_id": country_id,
-                            "name": country_name,
-                        }
-                        country_id=await utils.db.addCountry(countryDetails)
-                    else:
-                        country_id = country['_id']
-
-                    state = await utils.db.findState(state_name)
-                    if state is None:
-                        country_id = country_id or ObjectId()  # Ensure we have a valid country_id
-                        state_id = ObjectId()
-                        stateDetails = {
-                            "_id": state_id,
-                            "country_id": country_id,
-                            "name": state_name,
-                        }
-                        state_id = await utils.db.addState(stateDetails)
-                    else:
-                        state_id = state['_id']
-
-                    city = await utils.db.findCity(city_name)
-                    if city is None:
-                        country_id = country_id   # Ensure we have a valid country_id
-                        state_id = state_id  # Ensure we have a valid state_id
-                        city_id = ObjectId()
-                        cityDetails = {
-                            "_id": city_id,
-                            "country_id": country_id,
-                            "state_id": state_id,
-                            "name": city_name,
-                        }
-                        city_id=await utils.db.addCity(cityDetails)
-                    else:
-                        city_id = city['_id']
-
-                    category = await utils.db.findCategory(category_name)
-                    if category is None:
-                        category_id = ObjectId()
-                        categoryDetails = {
-                            "_id": category_id,
-                            "name": category_name,
-                        }
-                        await utils.db.addCategory(categoryDetails)
-                    else:
-                        category_id = category['_id']
-                        
-                    address = {
-                        "city": city_id,
-                        "state": state_id,
-                        "country": country_id,
+                country = await utils.db.findCountry(country_name)
+                if country is None:
+                    country_id = ObjectId()
+                    countryDetails = {
+                        "_id": country_id,
+                        "name": country_name,
                     }
+                    country_id=await utils.db.addCountry(countryDetails)
+                else:
+                    country_id = country['_id']
 
-            
-                    await utils.db.updateSpot(ObjectId(spot['_id']),name,address,category_name,is_active)
-                    await utils.db.updateStateWithSpot(state_id, spot_id)
+                state = await utils.db.findState(state_name)
+                if state is None:
+                    country_id = country_id or ObjectId()  # Ensure we have a valid country_id
+                    state_id = ObjectId()
+                    stateDetails = {
+                        "_id": state_id,
+                        "country_id": country_id,
+                        "name": state_name,
+                    }
+                    state_id = await utils.db.addState(stateDetails)
+                else:
+                    state_id = state['_id']
 
-                    await utils.db.updateCityWithSpot(city_id, spot_id)
+                city = await utils.db.findCity(city_name)
+                if city is None:
+                    country_id = country_id   # Ensure we have a valid country_id
+                    state_id = state_id  # Ensure we have a valid state_id
+                    city_id = ObjectId()
+                    cityDetails = {
+                        "_id": city_id,
+                        "country_id": country_id,
+                        "state_id": state_id,
+                        "name": city_name,
+                    }
+                    city_id=await utils.db.addCity(cityDetails)
+                else:
+                    city_id = city['_id']
 
-                    await utils.db.updateCountryWithSpot(country_id, spot_id)
+                category = await utils.db.findCategory(category_name)
+                if category is None:
+                    category_id = ObjectId()
+                    categoryDetails = {
+                        "_id": category_id,
+                        "name": category_name,
+                    }
+                    await utils.db.addCategory(categoryDetails)
+                else:
+                    category_id = category['_id']
+                    
+                address = {
+                    "city": city_id,
+                    "state": state_id,
+                    "country": country_id,
+                }
 
-                    await utils.db.updateCategoryWithSpot(category_id, spot_id,city_id,state_id,country_id)
+        
+                await utils.db.updateSpot(ObjectId(spot['_id']),name,address,category_name,is_active,image_url,opening_time,closing_time)
+                await utils.db.updateStateWithSpot(state_id, spot_id)
+
+                await utils.db.updateCityWithSpot(city_id, spot_id)
+
+                await utils.db.updateCountryWithSpot(country_id, spot_id)
+
+                await utils.db.updateCategoryWithSpot(category_id, spot_id,city_id,state_id,country_id)
 
                 self.write({"status": True, "message": "Spot updated successfully"})
             else:
@@ -302,10 +388,10 @@ class AdminHandler(BaseHandler):
             self.write({"status": "error", "message": f"An error occurred: {e}"})
 
     async def delete(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         
         try:
             spot_id = self.get_query_argument("spot_id")
@@ -316,12 +402,10 @@ class AdminHandler(BaseHandler):
             city_id=spot['address']['city']
             category_id = spot['category']
             if spot is not None:
-                spotImages= await utils.db.findSpotImages(spot['image_id'])
-                if spotImages:
-                    await utils.db.deleteSpot(ObjectId(spot_id),ObjectId(spotImages['_id']),country_id,state_id,city_id,category_id)
+                await utils.db.deleteSpot(ObjectId(spot_id),country_id,state_id,city_id,category_id)
 
-                    self.set_status(200)
-                    self.write({"status": True, "message": "Spot Deleted successfully"})
+                self.set_status(200)
+                self.write({"status": True, "message": "Spot Deleted successfully"})
             else:
                 self.set_status(400)
                 self.write({"status": False, "message": "Spot Not Found"})

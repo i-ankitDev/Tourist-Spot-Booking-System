@@ -15,10 +15,10 @@ class FilterHandler(BaseHandler):
         self.db = db
 
     async def get(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         try:
             start_date_str = self.get_query_argument("start_date", "")
             end_date_str = self.get_query_argument("end_date", "")
@@ -27,60 +27,111 @@ class FilterHandler(BaseHandler):
             city_name = self.get_query_argument("city_name", "")
             category_name = self.get_query_argument("category_name", "")
             spot_name = self.get_query_argument("spot_name", "")
+           
             if start_date_str and end_date_str : 
-                start_date = datetime.datetime.strptime(start_date_str, "%d-%m-%Y").date()
-                end_date = datetime.datetime.strptime(end_date_str, "%d-%m-%Y").date() 
+                start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()  
                 pipeline=[
-                            {
-                                '$lookup': {
-                                    'from': 'spots', 
-                                    'localField': 'spot_id', 
-                                    'foreignField': '_id', 
-                                    'as': 'spot_details'
+                        {
+                            '$lookup': {
+                                'from': 'spots', 
+                                'localField': 'spot_id', 
+                                'foreignField': '_id', 
+                                'as': 'spot_details'
+                            }
+                        }, {
+                            '$lookup': {
+                                'from': 'spot_daywise_details', 
+                                'localField': 'date_id', 
+                                'foreignField': '_id', 
+                                'as': 'date'
+                            }
+                        }, {
+                            '$unwind': '$date'
+                        }, {
+                            '$unwind': '$spot_details'
+                        }, {
+                            '$lookup': {
+                                'from': 'city', 
+                                'localField': 'spot_details.address.city', 
+                                'foreignField': '_id', 
+                                'as': 'city_details'
+                            }
+                        }, {
+                            '$unwind': '$city_details'
+                        }, {
+                            '$lookup': {
+                                'from': 'states', 
+                                'localField': 'spot_details.address.state', 
+                                'foreignField': '_id', 
+                                'as': 'state_details'
+                            }
+                        }, {
+                            '$unwind': '$state_details'
+                        }, {
+                            '$lookup': {
+                                'from': 'category', 
+                                'localField': 'spot_details.category', 
+                                'foreignField': '_id', 
+                                'as': 'category_details'
+                            }
+                        }, {
+                            '$unwind': '$category_details'
+                        }, {
+                            '$lookup': {
+                                'from': 'country', 
+                                'localField': 'spot_details.address.country', 
+                                'foreignField': '_id', 
+                                'as': 'country_details'
+                            }
+                        }, {
+                            '$unwind': '$country_details'
+                        }, {
+                            '$match': {
+                            '$and': [
+                                    {
+                                        'date.date': {
+                                               '$gte':start_date.isoformat(),
+                                                '$lte': end_date.isoformat()
+                                        }
+                                    }, {
+                                        'spot_details.name': {
+                                            '$regex': spot_name, 
+                                            '$options': 'ism'
+                                        }
+                                    }
+                            ]
                                 }
-                            }, {
-                                '$unwind': '$spot_details'
                             }, {
                                 '$project': {
-                                    'spot_details': 1, 
-                                    'dynamic_fields': {
-                                        '$objectToArray': '$$ROOT'
-                                    }
+                                    '_id':0,
+                                    'date':'$date.date',
+                                     'timeslot': {
+                                        '$concat': [
+                                            '$timeslot.start_time', '-', '$timeslot.end_time'
+                                        ]
+                                    }, 
+                                    'capacity': '$details.capacity', 
+                                    'tickets_available': '$details.tickets_available', 
+                                    'price': '$details.price', 
+                                    'revenue': {
+                                        '$multiply': [
+                                            '$details.price', '$details.tickets_available'
+                                        ]
+                                    }, 
+                                    'spot_name': '$spot_details.name', 
+                                    'country_name': '$country_details.name', 
+                                    'state_name': '$state_details.name', 
+                                    'city_name': '$city_details.name', 
+                                    'category_name': '$category_details.name', 
+                                    'isActive': '$spot_details.isActive'
                                 }
-                            }, {
-                                '$unwind': '$dynamic_fields'
-                            }, {
-                                '$match': {
-                                    '$and': [
-                                        {
-                                            'dynamic_fields.k': {
-                                                '$gte': str(start_date), 
-                                                '$lte': str(end_date)
-                                            }
-                                        }, {
-                                            'spot_details.name': {
-                                                '$regex': spot_name, 
-                                                '$options': 'ism'
-                                            }
-                                        }
-                                ]
-                                    }
-                                }, {
-                                    '$project': {
-                                        '_id': 0, 
-                                        'spot name': '$spot_details.name', 
-                                        'date': '$dynamic_fields.k', 
-                                        'capacity': '$dynamic_fields.v.capacity', 
-                                        'tickets_available': '$dynamic_fields.v.tickets_available', 
-                                        'price': '$dynamic_fields.v.price', 
-                                        'attendence': '$dynamic_fields.v.attendence'
-                                    }
-                                }
+                            }
                         ]
-                cursor = db.spotTicket.aggregate(pipeline)
+                cursor = db.spot_time_slot.aggregate(pipeline)
                 result = await cursor.to_list(length=None)
                 self.set_status(200)
-                self.write({"status": "success", "data": result})
+                self.write({"status": True, "data": result})
             else:
                 pipeline =  [
                     {
@@ -165,9 +216,9 @@ class FilterHandler(BaseHandler):
                 cursor = db.spots.aggregate(pipeline)
                 result = await cursor.to_list(length=None)
                 self.set_status(200)
-                self.write({"status": "success", "data": result})
+                self.write({"status":True, "data": result})
 
         except Exception as e:
             self.set_status(500)
-            self.write({"status": "error", "message": f"An error occurred: {e}"})
+            self.write({"status": False, "message": f"An error occurred: {e}"})
  

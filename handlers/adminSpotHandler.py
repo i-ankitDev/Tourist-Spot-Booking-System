@@ -43,31 +43,132 @@ class AdminSpotHandler(BaseHandler):
         self.db = db
     
     async def post(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         try:
             spot_id = self.get_query_argument("spot_id")
             data = tornado.escape.json_decode(self.request.body)
             capacity = int(data.get("capacity"))
             ticketPrice = float(data.get("ticketPrice"))
+            start_time_str = data.get('start_time')
+            end_time_str = data.get('end_time')
             tickets_available = capacity
             attendence = capacity
-            current_date=date.today().isoformat()
-            # current_date=(datetime.datetime.now() + datetime.timedelta(days=1)).isoformat()
-            await utils.db.spotTicket(ObjectId(spot_id),current_date,capacity,tickets_available,ticketPrice,attendence)
-            self.write({"status": True, "message": "Ticket details added successfully"})
+            pipeline =    [
+                    {
+                        '$match': {
+                            '_id': ObjectId(spot_id)
+                        }
+                    }, {
+                        '$project': {
+                            '_id': 0, 
+                            'opening_time': 1, 
+                            'closing_time': 1, 
+                            'name': 1
+                        }
+                    }
+                ]
+            cursor = db.spots.aggregate(pipeline)
+            result = await cursor.to_list(length=None)
+            date = data.get("date")
+            date = datetime.datetime.strptime(date, "%d-%m-%Y").strftime("%Y-%m-%d")
+            opening_time_str = result[0]['opening_time']
+            closing_time_str=result[0]['closing_time']
+            start_time = datetime.datetime.strptime(start_time_str, "%H:%M").time()
+            end_time = datetime.datetime.strptime(end_time_str, "%H:%M").time()
+            opening_time = datetime.datetime.strptime(opening_time_str, "%H:%M").time()
+            closing_time = datetime.datetime.strptime(closing_time_str, "%H:%M").time()
+            # current_date=date.today().isoformat()
+            result=await db.spot_daywise_details.find_one({"spot_id":ObjectId(spot_id),"date":date})
+            if result is None:
+                    mydict = {
+                        "spot_id": ObjectId(spot_id),
+                        "date":date
+                    }
+                    result=await db.spot_daywise_details.insert_one(mydict)
+                    date_id=result.inserted_id
+                    
+            else:
+                date_id=result['_id']
+            
+            if start_time < opening_time or end_time > closing_time:
+                self.set_status(400)
+                self.write({
+                    "status": False,
+                    "message": "Start time should not be before opening time and end time should not be after closing time."
+                })
+                return
+            
+            timeslot_str = f"{start_time}-{end_time}"
+            pipeline1 = [
+                {
+                    '$match': {
+                        'spot_id': ObjectId(spot_id), 
+                    }
+                }
+            ]
+            pipeline2 = [
+                {
+                    '$lookup': {
+                        'from': 'spot_time_slot', 
+                        'localField': '_id', 
+                        'foreignField': 'date_id', 
+                        'as': 'daywise_timeslot_details'
+                    }
+                }, {
+                    '$unwind': '$daywise_timeslot_details'
+                }, {
+                    '$match': {
+                        'date': date
+                    }
+                }, {
+                    '$match': {
+                        'daywise_timeslot_details.timeslot': timeslot_str
+                    }
+                },
+                {
+                    '$project': {
+                        "timeslot":"$daywise_timeslot_details.timeslot"
+                    }
+                }
+            ]
+
+            result1 = await db.spot_time_slot.aggregate(pipeline1).to_list(length=None)
+            result2 = await db.spot_daywise_details.aggregate(pipeline2).to_list(length=None)
+            if not result1 or not result2:
+                await db.spot_time_slot.insert_one(
+                    {"spot_id": ObjectId(spot_id),
+                    "date_id":ObjectId(date_id),
+                    "timeslot":{
+                        "start_time":start_time.isoformat(),
+                        "end_time":end_time.isoformat()
+                    },
+                    "details": {
+                            "capacity": capacity,
+                            "tickets_available": tickets_available,
+                            "price": ticketPrice,
+                            "attendence":attendence
+                            }
+                    },
+                )
+                self.set_status(200)
+                self.write({"status": True, "message": "Ticket details added successfully"})
+            else:
+                self.set_status(400)
+                self.write({"status": False, "message": "Ticket details already added"})
+            
         except Exception as e:
             self.set_status(500)
             self.write({"status": False, "message": f"An error occurred: {str(e)}"})
 
 
     async def get(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
         
         try:
             start_date_str = self.get_query_argument("start_date", None)
@@ -110,7 +211,7 @@ class AdminSpotHandler(BaseHandler):
                                     spot_data = {}
 
                                     spot_ticket_details = await utils.db.findSpotTicket(spot['_id'])
-                                    # print(spot_ticket_details)
+                                    print(spot_ticket_details)
                                     # Filter spot_ticket_details based on the date range
                                     filtered_ticket_details = []
                                     for detail in spot_ticket_details:
@@ -163,12 +264,15 @@ class AdminSpotHandler(BaseHandler):
                                 category_data.append(spot_data)
                             city_data[category['name']] = category_data
                         state_data[city['name']] = city_data
-
+                    self.set_status(200)
                     self.write({
                         'status': 'success',
                         state_doc['name']: state_data
                     })
                     return
+                else:
+                    self.set_status(400)
+                    self.write({"status": False, "message": "state not exist"})
 
             if city_name:
                 city_doc = await db.city.find_one({'name': {'$regex': city_name, '$options': 'i'}})
@@ -186,12 +290,16 @@ class AdminSpotHandler(BaseHandler):
                             spot_data['day_wise_details'] = day_wise_details
                             category_data.append(spot_data)
                         city_data[category['name']] = category_data
-
+                    self.set_status(200)
                     self.write({
                         'status': 'success',
                         city_doc['name']: city_data
                     })
                     return
+                else:
+                    self.set_status(400)
+                    self.write({"status": False, "message": "city not exist"})
+
 
             if category_name:
                 category_doc = await db.category.find_one({'name': {'$regex': category_name, '$options': 'i'}})
@@ -207,11 +315,15 @@ class AdminSpotHandler(BaseHandler):
                             spot_data['spot_name'] = spot['name']
                             spot_data['day_wise_details'] = day_wise_details
                             category_data.append(spot_data)
+                        self.set_status(200)
                         self.write({
                             'status': 'success',
                             category_doc['name']: category_data
                         })
                         return
+                else:
+                    self.set_status(400)
+                    self.write({"status": False, "message": "category not exist"})
 
             if spot_name:
                 spot_details = {}

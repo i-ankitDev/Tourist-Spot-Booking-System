@@ -11,12 +11,14 @@ class BookingHistoryHandler(BaseHandler):
         self.db = db
 
     async def get(self):
-        if not self.current_user:
-            self.set_status(401)
-            self.write({"status": False, "message": "Unauthorized"})
-            return
-        user=self.get_current_user()
-        user=await utils.db.findUserById(ObjectId(user['_id']))
+        # if not self.current_user:
+        #     self.set_status(401)
+        #     self.write({"status": False, "message": "Unauthorized"})
+        #     return
+        # user=self.get_current_user()
+        # user=await utils.db.findUserById(ObjectId(user['_id']))
+        user=self.get_query_argument("user_id")
+        user=await utils.db.findUserById(ObjectId(user))
         if user is not None:
             result=await utils.db.findTicketHistory(ObjectId(user['_id']))
             if result is not None:

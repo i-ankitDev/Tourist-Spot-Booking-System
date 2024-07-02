@@ -15,6 +15,7 @@ from handlers.countryHandler import CountryHandler
 from handlers.categoryHandler import CategoriesHandler
 from handlers.ratingHandler import RatingHandler
 from handlers.filterHandler import FilterHandler
+from handlers.timeslothandler import TimeSlotHandler
 
 def make_app():
     db=getDatabase()
@@ -35,6 +36,7 @@ def make_app():
         (r"/getcategories",CategoriesHandler ,dict(db=db)),
         (r"/user/rating",RatingHandler ,dict(db=db)),
         (r"/spot/filter",FilterHandler ,dict(db=db)),
+        (r"/gettimeslot",TimeSlotHandler,dict(db=db)),
 
     ], cookie_secret="nbkZgds8bKe3SFXKhX09B7AC8NwtUmxq86NBjW6iLGvxItZt_ST5", debug=True)
 

@@ -20,16 +20,16 @@ class BaseHandler(tornado.web.RequestHandler):
         self.set_status(204)
         self.finish()
 
-    def get_current_user(self):
-        auth_cookie = self.get_secure_cookie("auth_token")
-        if auth_cookie:
-            try:
-                token = auth_cookie.decode('utf-8')
-                return decode(token)
-            except Exception as e:
-                print(f"Error decoding token: {e}")
-                return None
-        return None
+    # def get_current_user(self):
+    #     auth_cookie = self.get_secure_cookie("auth_token")
+    #     if auth_cookie:
+    #         try:
+    #             token = auth_cookie.decode('utf-8')
+    #             return decode(token)
+    #         except Exception as e:
+    #             print(f"Error decoding token: {e}")
+    #             return None
+    #     return None
 
 class LoginHandler(BaseHandler):
     def initialize(self, db):
@@ -80,8 +80,9 @@ class LoginHandler(BaseHandler):
                     self.write({"status": False, "message": "Invalid email or password."})
                 else:
                     encoded_user_id = encode(str(user["_id"]))
-                    self.set_secure_cookie("auth_token", encoded_user_id, httponly=True, secure=True)
-                    self.write({"status": True, "message": "User logged in successfully."})
+                    # self.set_header("Authorization", f"Bearer {encoded_user_id}")
+                    # self.set_secure_cookie("auth_token", encoded_user_id, httponly=True, secure=True)
+                    self.write({"status": True, "message": "User logged in successfully.","user_id":str(user['_id'])})
             except Exception as e:
                 self.set_status(500)
                 self.write({"status": False, "message": f"An error occurred: {str(e)}"})
@@ -102,8 +103,9 @@ class LoginHandler(BaseHandler):
                     self.write({"status": False, "message": "Invalid email or password."})
                 else:
                     encoded_id = encode(str(subAdmin["_id"]))
-                    self.set_secure_cookie("auth_token", encoded_id, httponly=True, secure=True)
-                    self.write({"status": True, "message": "Sub-Admin logged in successfully."})
+                    # self.set_header("Authorization", f"Bearer {encoded_id}")
+                    # self.set_secure_cookie("auth_token", encoded_id, httponly=True, secure=True)
+                    self.write({"status": True, "message": "Sub-Admin logged in successfully.","subadmin_id":str(subAdmin['_id'])})
             except Exception as e:
                 self.set_status(500)
                 self.write({"status": False, "message": f"An error occurred: {str(e)}"})
@@ -127,8 +129,9 @@ class LoginHandler(BaseHandler):
             stored_otp = admin.get('otp') if admin else None
             if stored_otp and stored_otp == otp:
                 encoded_admin_id = encode(str(admin["_id"]))
-                self.set_secure_cookie("auth_token", encoded_admin_id, httponly=True, secure=True)
-                self.write({"status": True, "message": "OTP validated successfully"})
+                # self.set_header("Authorization", f"Bearer {encoded_admin_id}")
+                # self.set_secure_cookie("auth_token", encoded_admin_id, httponly=True, secure=True)
+                self.write({"status": True, "message": "OTP validated successfully","admin_id":str(admin['_id'])})
             else:
                 self.write({"status": False, "message": "Invalid OTP"})
             
@@ -175,10 +178,6 @@ class SignupModule(BaseHandler):
                 self.set_status(500)
                 self.write({"status": False, "message": f"An error occurred: {e}"})
         elif role == "subadmin":
-            if not self.current_user:
-                self.set_status(401)
-                self.write({"status": False, "message": "Unauthorized"})
-                return
             try:
                 spot_id = self.get_query_argument("spot_id")
                 spot = await utils.db.findSpotById(ObjectId(spot_id))

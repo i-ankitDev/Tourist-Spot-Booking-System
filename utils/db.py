@@ -134,9 +134,9 @@ async def updateImage(_id,data,filename):
 
     return result
 
-async def updateSpot(_id,name,address,category_name,is_active):
+async def updateSpot(_id,name,address,category_name,is_active,image_url,opening_time,closing_time):
     await mydb.spots.update_many({"_id": _id},
-                    {"$set": {"name": name,"address":address,"category":category_name,"isActive":is_active}})
+                    {"$set": {"name": name,"address":address,"category":category_name,"isActive":is_active,"image":image_url,"opening_time":opening_time,"closing_time":closing_time}})
  
 async def deleteSpot(_id,image_id,country_id,state_id,city_id,category_id):
     await mydb.spots.delete_one({"_id": _id})
@@ -158,6 +158,7 @@ async def bookTicket(dict,spot_id,current_date,new_tickets_available):
     await mydb.spotTicket.update_one({"spot_id": spot_id},
        {"$set": { f"{current_date}.tickets_available": new_tickets_available},
         "$push": {f"{current_date}.ticketBookings": id}})
+    return id
  
 async def findUserById(_id):
     user = await mydb.user.find_one({"_id":_id})
@@ -173,8 +174,8 @@ async def updateTicketDetails(_id):
 
 async def cancelTicket(_id,spot_id,slotAvailable,current_date,new_tickets_available):
     await mydb.ticketBooking.update_one({"_id": _id},{"$set": {"isValid":False}})
-    await mydb.spotTicket.update_one({"spot_id": spot_id},
-       {"$set": { f"{current_date}.tickets_available": new_tickets_available}})
+    # await mydb.spotTicket.update_one({"spot_id": spot_id},
+    #    {"$set": { f"{current_date}.tickets_available": new_tickets_available}})
     
 async def findTicketHistory(_id):
     pipeline = [
@@ -256,16 +257,18 @@ async def updateCategoryWithSpot(category_id, spot_id, city_id, state_id, countr
 async def findSpotTicketById(spot_id):
     return await mydb.spotTicket.find_one({"spot_id": spot_id})
 
-async def spotTicket(spot_id,todayDate,capacity,tickets_available,price,attendence):
+async def spotTicket(spot_id,todayDate,capacity,tickets_available,price,attendence,start_time,end_time):
     await mydb.spotTicket.update_one(
     {"spot_id": spot_id},
     {
         "$set": {
             todayDate: {
+                 f"{start_time}-{end_time}":{ 
                 "capacity": capacity,
                 "tickets_available": tickets_available,
                 "price": price,
                 "attendence":attendence
+                }
             }
         }
     },
@@ -347,7 +350,7 @@ async def findSpotsByIds(spot_ids):
 
 async def findSpotTicket(spot_id):
     # return await mydb.spotTicket.find({"spot_id":spot_id})  
-    cursor= mydb.spotTicket.find({"spot_id":  spot_id})
+    cursor= mydb.spot_time_slot.find({"spot_id":  spot_id})
     result = await cursor.to_list(length=None)  
     return result
 
